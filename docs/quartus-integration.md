@@ -31,22 +31,10 @@ inside its own process and accesses D2XX directly.
 Each client handle and the in-process divider cache require serialized access.
 The implementation does not expose a general-purpose thread-safe API.
 
-## USB access
-
-On Linux, install the provided access rule:
-
-```bash
-sudo cp 99-mpsse-blaster.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-```
-
-Reconnect the adapter. The rule matches VID/PID `0403:6014` and the product string
-`Single RS232-HS`. It grants access but does not detach the `ftdi_sio` kernel
-driver. If a kernel driver owns the interface, release that interface before
-using D2XX. On Windows, install the FTDI device driver.
-
 ## Deployment
+
+Configure [USB access](../README.md#usb-access) using the installation instructions
+in the README before using the adapter with Quartus.
 
 Finish clients using the adapter and stop the relevant JTAG server before
 replacing a loaded plugin. Back up the existing plugin if one is present.

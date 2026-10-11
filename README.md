@@ -96,6 +96,50 @@ If the headers and library are stored separately, set `FTDI_D2XX_INCLUDE_DIR`
 and `FTDI_D2XX_LIBRARY` explicitly. Debug and Release builds share the default
 output directory; use separate `MPSSE_OUTPUT_DIRECTORY` values to keep both.
 
+## Installation
+
+### USB access
+
+Both `mpsse_scan` and the Quartus plugin need access to the FT232H.
+On Linux, install the provided access rule:
+
+```bash
+sudo cp 99-mpsse-blaster.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+Reconnect the adapter. The rule matches VID/PID `0403:6014` and the product string
+`Single RS232-HS`. This rule sets USB permissions; D2XX also needs the interface
+released from the Linux `ftdi_sio` serial driver.
+
+Disable `ftdi_sio` automatic loading and unload the currently loaded module:
+
+```bash
+printf '%s\n' 'blacklist ftdi_sio' | sudo tee /etc/modprobe.d/mpsse-blaster.conf
+sudo modprobe -r ftdi_sio
+```
+
+This disables FTDI serial-port support system-wide. Close applications using
+FTDI serial ports before unloading the module. If it reports that the module is
+in use, release those ports and retry; do not force removal.
+
+Reconnect the adapter and run `lsusb -t` to confirm that its interface is no
+longer bound to `ftdi_sio`. The blacklist prevents normal automatic loading after
+reconnection or reboot. If `ftdi_sio` is loaded from the initramfs during boot,
+rebuild the initramfs after adding the blacklist (`sudo dracut -f` on Fedora,
+or `sudo update-initramfs -u` on Debian/Ubuntu).
+
+On Windows, install the [FTDI device driver](https://ftdichip.com/drivers/d2xx-drivers/).
+
+### Quartus plugin
+
+To use the adapter with Quartus, follow the
+[plugin deployment instructions](docs/quartus-integration.md#deployment).
+The standalone scanner can run after USB access is configured.
+
+### Installation prefix
+
 An optional install prefix places the plugin under `lib` or `lib64`, the scanner
 under `bin`, and the Linux udev rule under `share/mpsse-blaster`:
 
@@ -117,14 +161,13 @@ Wire the FT232H to the target with compatible signal levels and a common ground:
 | ADBUS3 | TMS |
 | GND | GND |
 
-On Linux, configure USB access as described in the
-[integration guide](docs/quartus-integration.md#usb-access), then run:
+After configuring [USB access](#usb-access), run on Linux:
 
 ```bash
 ./export/mpsse_scan
 ```
 
-On Windows, run `.\export\mpsse_scan.exe` after installing the FTDI driver.
+On Windows, run `.\export\mpsse_scan.exe`.
 
 The scanner resets the TAP and reads the first device's default 32-bit IDCODE.
 Press Enter to repeat, or Ctrl+C to exit. EOF exits after the current scan, so
