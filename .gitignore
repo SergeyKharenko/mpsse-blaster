@@ -1,0 +1,15 @@
+# CMake build directories
+/build/
+/build-*/
+/cmake-build-*/
+
+# Plugin and scan tool binaries
+/export/
+
+# User-provided FTDI D2XX SDK; keep the directory placeholder
+/lib/*
+!/lib/.gitkeep
+
+# Local CMake and Visual Studio settings
+/CMakeUserPresets.json
+/.vs/
