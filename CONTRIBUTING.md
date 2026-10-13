@@ -13,6 +13,7 @@ Preserve existing copyright notices and add an SPDX identifier to new source fil
 | `src/mpsse_device.c` | FTDI discovery, initialization, cleanup and divider retention |
 | `src/mpsse_transport.c` | USB transfers and MPSSE synchronization |
 | `src/mpsse_clock.c` | Clock dividers and scalar/block parameters |
+| `src/mpsse_autotune.c` | Bounded chain probes and automatic clock selection at TAP reset |
 | `src/mpsse_jtag.c` | JTAG command buffering, TDO delivery and delay barriers |
 | `include/mpsse_internal.h` | Private types and cross-module declarations |
 | `tool/mpsse_scan.c` | Standalone consumer of the operation table |
@@ -23,40 +24,22 @@ variables use `snake_case`, types use `PascalCase`, and constants use `UPPER_CAS
 Private helpers should be `static`. Only `get_supported_hardware` is exported by
 the plugin. Do not add dependencies between modules through included `.c` files.
 
-Use the repository's `.clang-format` and `.editorconfig`; formatting checks use
-clang-format 18.1.8. Format only project sources, not user-provided FTDI headers:
+Use `.clang-format` and `.editorconfig`. Format only project sources, not FTDI
+SDK headers. Handle D2XX errors immediately, bound buffers, release handles on
+initialization failure, and keep transport errors latched until reopen. Preserve
+queued-operation ordering and serialized access to handles and settings.
 
-```bash
-clang-format -i src/*.c include/*.h tool/*.c
-```
+## Validation
 
-Handle each D2XX error immediately. Status codes are values, not bit flags. Close
-owned handles on initialization failures, bound caller-provided buffers and keep
-transport errors visible until the adapter is reopened. Preserve queued-operation
-ordering when setting the clock or delaying. Client operations and the in-process
-device/divider cache require serialized access; this code does not promise a
-general-purpose thread-safe public API.
-
-## Build checks
-
-Build the plugin and scanner against the platform's D2XX SDK before submitting
-changes. From the repository root on Linux:
-
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
-```
-
-For Windows build commands and SDK configuration, see [README.md](README.md).
-Run formatting checks over project sources:
+Build both targets using the [README instructions](README.md#building), then
+check formatting:
 
 ```bash
 clang-format --dry-run --Werror src/*.c include/*.h tool/*.c
 ```
 
-Describe the platforms built and any hardware verification performed. Use an
-available adapter and an isolated JTAG server when other Quartus processes are
-running. Deployment is separate from building. After checking a different TCK
-setting, restore the default 10 MHz. A successful chain scan establishes chain
-communication; programming stability and electrical frequency measurements
-require their own verification.
+Describe the platforms built and verification performed. Use an available
+adapter and an isolated JTAG server for hardware checks; do not interrupt other
+sessions. Disable automatic adjustment and restore 10 MHz afterward. Building
+does not deploy the plugin, and chain-scan success does not prove programming
+stability.

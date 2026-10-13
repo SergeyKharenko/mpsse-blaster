@@ -15,12 +15,9 @@ tool/           Standalone mpsse_scan application
 docs/           Quartus integration and callback reference
 ```
 
-`include/quartus_abi.h` defines the operation tables and an opaque client handle.
-`include/mpsse_internal.h` contains implementation details. The plugin exports
-`get_supported_hardware`; the scanner consumes the same operation table without
-requiring Quartus.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for module responsibilities and code style.
+The public ABI is in `include/quartus_abi.h`; implementation types are in
+`include/mpsse_internal.h`. See [CONTRIBUTING.md](CONTRIBUTING.md) for module
+responsibilities and style.
 
 ## Build requirements
 
@@ -42,14 +39,12 @@ lib/
     └── Static/amd64/ftd2xx.lib
 ```
 
-Only the directory for your platform is required. The Linux library must contain
-position-independent code suitable for a shared library. On Windows, use the
-static library rather than the similarly named DLL import library; a static
-`ftd2xx.lib` directly under `windows-x86_64/` is also accepted.
+Only your platform's directory is needed. Use a position-independent Linux
+library or a Windows static library, not the DLL import library. Windows also
+accepts `ftd2xx.lib` directly under `windows-x86_64/`.
 
-The SDK is supplied by the developer and excluded from version control. Neither
-binary requires a separate `libftd2xx.so` or `ftd2xx.dll` at runtime. Windows
-hardware access requires the FTDI device driver.
+The SDK is excluded from version control. Both binaries link D2XX statically;
+Windows hardware access still requires the FTDI device driver.
 
 ## Building
 
@@ -120,15 +115,12 @@ printf '%s\n' 'blacklist ftdi_sio' | sudo tee /etc/modprobe.d/mpsse-blaster.conf
 sudo modprobe -r ftdi_sio
 ```
 
-This disables FTDI serial-port support system-wide. Close applications using
-FTDI serial ports before unloading the module. If it reports that the module is
-in use, release those ports and retry; do not force removal.
+This disables FTDI serial ports system-wide. Close applications using them
+before unloading; if the module is busy, release those ports and retry.
 
-Reconnect the adapter and run `lsusb -t` to confirm that its interface is no
-longer bound to `ftdi_sio`. The blacklist prevents normal automatic loading after
-reconnection or reboot. If `ftdi_sio` is loaded from the initramfs during boot,
-rebuild the initramfs after adding the blacklist (`sudo dracut -f` on Fedora,
-or `sudo update-initramfs -u` on Debian/Ubuntu).
+Reconnect and check `lsusb -t`: the adapter must not be bound to `ftdi_sio`.
+If the module loads from the initramfs, rebuild it after blacklisting:
+`sudo dracut -f` on Fedora or `sudo update-initramfs -u` on Debian/Ubuntu.
 
 On Windows, install the [FTDI device driver](https://ftdichip.com/drivers/d2xx-drivers/).
 
@@ -176,26 +168,34 @@ instruction selects BYPASS instead of IDCODE need a different scan sequence.
 
 ## Quartus integration
 
-Deploy the plugin to Quartus's platform library directory, then select
-`JTAG-MPSSE-Blaster` in Programmer or enumerate it with `jtagconfig`.
-The [integration guide](docs/quartus-integration.md) covers deployment, plugin
-loading, callback behavior and troubleshooting. This is a third-party plugin;
-the Quartus hardware-driver ABI is not a published SDK contract.
+Follow the [deployment guide](docs/quartus-integration.md#deployment), then select
+`JTAG-MPSSE-Blaster` in Programmer or enumerate it with `jtagconfig`. This is a
+third-party plugin using an unpublished Quartus hardware-driver ABI.
 
-The default TCK is **10 MHz**. `JtagClock` accepts frequencies in Hz, including
-**30 MHz**, and reports the divider's realized rate. Hardware operation at a
-selected rate depends on the target and wiring. To select 15 MHz, using the cable
-number returned by `jtagconfig`:
+TCK defaults to **10 MHz**, with a **30 MHz** maximum. Requests round down to
+30, 15, 10, 7.5, 6 MHz or lower: 20 MHz selects 15 MHz; 12 MHz selects 10 MHz.
+Using the cable number returned by `jtagconfig`, select a manual rate:
 
 ```bash
+jtagconfig --setparam 1 JtagClockAutoAdjust 0
 jtagconfig --setparam 1 JtagClock 15000000
 jtagconfig --getparam 1 JtagClock
 ```
 
-The high-speed divider produces 30, 15, 10, 7.5, 6 MHz and further lower rates.
-Requests round down to the fastest realizable rate at or below the request:
-20 MHz selects 15 MHz, and 12 MHz selects 10 MHz. There is no divider setting
-between 15 and 30 MHz. Restarting the JTAG server restores the 10 MHz default.
+For automatic adjustment, check **Auto-adjust frequency at chain scanning**
+in Hardware Setup, or run:
+
+```bash
+jtagconfig --setparam 1 JtagClockAutoAdjust 1
+jtagconfig
+jtagconfig --getparam 1 JtagClock
+```
+
+At TAP reset, the plugin selects the highest candidate rate that matches repeated
+low-speed chain reads. Adjustment defaults to off; disable it to keep a manual
+rate. Settings last until the JTAG server restarts. See the
+[integration guide](docs/quartus-integration.md#automatic-adjustment) for probe
+rates and supported chains. Chain scans do not establish programming stability.
 
 ## License and origin
 

@@ -48,8 +48,7 @@ __declspec(dllexport)
 #else
 __attribute__((visibility("default")))
 #endif
-void *
-get_supported_hardware(int index)
+void *get_supported_hardware(int index)
 {
     return index == 0 && mpsse_has_supported_device() ? &hw_device : NULL;
 }

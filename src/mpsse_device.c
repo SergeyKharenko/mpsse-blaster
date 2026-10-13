@@ -268,6 +268,7 @@ JTAGClientData *mpsse_device_open(unsigned int dev_num, JTAGServerOperations *se
     }
     clock_divisor = hw_data->clock_setting->divisor;
     hw_data->clock_divisor = (unsigned short)clock_divisor;
+    hw_data->auto_adjust = hw_data->clock_setting->auto_adjust;
     hw_data->jtag_clock = mpsse_clock_base_hz(hw_data) / (2 * (clock_divisor + 1));
     buffer[dw_num_bytes_to_send++] = FT_OPCODE_DISABLE_ADAPTIVE_CLOCKING;
     buffer[dw_num_bytes_to_send++] = FT_OPCODE_DISABLE_THREE_PHASE_CLOCKING;

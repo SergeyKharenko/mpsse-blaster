@@ -13,7 +13,6 @@
 #define JTAG_CLOCK_PARAM             "JtagClock"
 #define JTAG_CLOCK_AUTO_ADJUST_PARAM "JtagClockAutoAdjust"
 #define JTAG_UNSUPPORTED_PARAMETER   0x2D
-#define JTAG_UNIMPLEMENTED           0x7E
 #define JTAG_OPEN_FAILED             0x56
 
 typedef struct MpsseClockSetting
@@ -23,12 +22,14 @@ typedef struct MpsseClockSetting
     unsigned int device_index;
     BOOL is_high_speed;
     unsigned short divisor;
+    BOOL auto_adjust;
 } MpsseClockSetting;
 
 #define MPSSE_BUFFER_SIZE 65536
 
 // Opcodes
 #define FT_OPCODE_CLOCK_TMS                    0x6B
+#define FT_OPCODE_CLOCK_TMS_NO_READ            0x4B
 #define FT_OPCODE_SEND_IMMEDIATE               0x87
 #define FT_OPCODE_INVALID_COMMAND              0xAA
 #define FT_OPCODE_CLOCK_DATA_BITS              0x3B
@@ -62,6 +63,8 @@ struct JTAGClientData
     BOOL is_high_speed;
     DWORD jtag_clock;
     unsigned short clock_divisor;
+    BOOL auto_adjust;
+    unsigned char tms_high_count;
     struct MpsseClockSetting *clock_setting;
     FT_STATUS transport_status;
     MpsseBufferState status;
@@ -83,6 +86,10 @@ FT_STATUS mpsse_transfer(FT_HANDLE handle, unsigned char *out_buffer, unsigned i
                          unsigned char *in_buffer, unsigned int in_size);
 FT_STATUS mpsse_synchronize(FT_HANDLE handle);
 uint32_t mpsse_clock_base_hz(const JTAGClientData *client);
+FT_STATUS mpsse_calculate_clock_divider(const JTAGClientData *client, uint32_t frequency,
+                                        unsigned short *divisor);
+FT_STATUS mpsse_program_clock_divider(JTAGClientData *client, unsigned short divisor);
+FT_STATUS mpsse_auto_adjust_clock(JTAGClientData *client);
 JTAGClientData *mpsse_device_open(unsigned int index, JTAGServerOperations *server_ops,
                                   void *server_instance);
 JtagBool mpsse_scan_ports(unsigned int index, char *port_name, int size);

@@ -85,6 +85,7 @@ set(mpsse_sources
     src/mpsse_transport.c
     src/mpsse_device.c
     src/mpsse_clock.c
+    src/mpsse_autotune.c
     src/mpsse_jtag.c
     src/quartus_plugin.c
 )

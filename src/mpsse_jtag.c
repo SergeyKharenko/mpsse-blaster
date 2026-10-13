@@ -224,6 +224,31 @@ uint32_t mpsse_clock_bits(JTAGClientData *mpsse_blaster, int tms, int tdi, int b
                 return mpsse_blaster->transport_status;
             }
         }
+
+        // Five consecutive TMS-high clocks put every TAP in Test-Logic-Reset.
+        // Calibrate here, with all earlier commands completed, and leave the
+        // physical TAP in reset so the caller's remaining clocks stay valid.
+        if (!tms)
+        {
+            mpsse_blaster->tms_high_count = 0;
+        }
+        else if (mpsse_blaster->tms_high_count < 5)
+        {
+            mpsse_blaster->tms_high_count++;
+            if (mpsse_blaster->tms_high_count == 5 && mpsse_blaster->auto_adjust)
+            {
+                if (!mpsse_flush(mpsse_blaster, TRUE, position))
+                {
+                    return mpsse_blaster->transport_status;
+                }
+                FT_STATUS status = mpsse_auto_adjust_clock(mpsse_blaster);
+                mpsse_blaster->transport_status = status;
+                if (status != FT_OK)
+                {
+                    return status;
+                }
+            }
+        }
     }
 
     return 0;

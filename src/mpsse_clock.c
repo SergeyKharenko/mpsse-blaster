@@ -15,17 +15,15 @@ uint32_t mpsse_clock_base_hz(const JTAGClientData *mpsse_blaster)
     return mpsse_blaster->is_high_speed ? 60000000U : 12000000U;
 }
 
-static FT_STATUS calculate_clock_divider(const JTAGClientData *mpsse_blaster,
-                                         uint32_t requested_clock, unsigned short *clock_divisor,
-                                         DWORD *actual_clock)
+FT_STATUS mpsse_calculate_clock_divider(const JTAGClientData *mpsse_blaster,
+                                        uint32_t requested_clock, unsigned short *clock_divisor)
 {
-    if (!mpsse_blaster || !clock_divisor || !actual_clock || requested_clock == 0)
+    if (!mpsse_blaster || !clock_divisor || requested_clock == 0)
     {
         return FT_INVALID_PARAMETER;
     }
 
-    uint64_t base_clock = mpsse_clock_base_hz(mpsse_blaster);
-    uint64_t numerator = base_clock / 2;
+    uint64_t numerator = mpsse_clock_base_hz(mpsse_blaster) / 2U;
     uint64_t divisor = (numerator + requested_clock - 1) / requested_clock - 1;
 
     if (requested_clock > numerator || divisor > 0xFFFF)
@@ -34,11 +32,10 @@ static FT_STATUS calculate_clock_divider(const JTAGClientData *mpsse_blaster,
     }
 
     *clock_divisor = (unsigned short)divisor;
-    *actual_clock = (DWORD)(base_clock / (2 * (divisor + 1)));
     return FT_OK;
 }
 
-static FT_STATUS program_clock_divider(JTAGClientData *mpsse_blaster, unsigned short clock_divisor)
+FT_STATUS mpsse_program_clock_divider(JTAGClientData *mpsse_blaster, unsigned short clock_divisor)
 {
     unsigned char buffer[3] = {
         FT_OPCODE_SET_CLOCK_DIVIDER,
@@ -75,7 +72,7 @@ uint32_t mpsse_get_param(JTAGClientData *mpsse_blaster, char *param_name, uint32
     {
         if (param_value)
         {
-            *param_value = 0; // No target feedback for automatic clock adjustment.
+            *param_value = !!mpsse_blaster->auto_adjust;
         }
         return FT_OK;
     }
@@ -96,7 +93,13 @@ uint32_t mpsse_set_param(JTAGClientData *mpsse_blaster, char *param_name, uint32
         {
             return JTAG_UNSUPPORTED_PARAMETER;
         }
-        return param_value ? JTAG_UNIMPLEMENTED : FT_OK;
+        // Calibration starts at TAP reset, without interrupting queued traffic.
+        mpsse_blaster->auto_adjust = (BOOL)param_value;
+        if (mpsse_blaster->clock_setting)
+        {
+            mpsse_blaster->clock_setting->auto_adjust = (BOOL)param_value;
+        }
+        return FT_OK;
     }
 
     if (strcmp(param_name, JTAG_CLOCK_PARAM) != 0)
@@ -105,9 +108,7 @@ uint32_t mpsse_set_param(JTAGClientData *mpsse_blaster, char *param_name, uint32
     }
 
     unsigned short clock_divisor;
-    DWORD actual_clock;
-    FT_STATUS status =
-        calculate_clock_divider(mpsse_blaster, param_value, &clock_divisor, &actual_clock);
+    FT_STATUS status = mpsse_calculate_clock_divider(mpsse_blaster, param_value, &clock_divisor);
     if (status != FT_OK)
     {
         // Quartus parameter errors use AJI status 0x2D, not D2XX status 6.
@@ -120,17 +121,11 @@ uint32_t mpsse_set_param(JTAGClientData *mpsse_blaster, char *param_name, uint32
         return FT_IO_ERROR;
     }
 
-    status = program_clock_divider(mpsse_blaster, clock_divisor);
+    status = mpsse_program_clock_divider(mpsse_blaster, clock_divisor);
     mpsse_blaster->transport_status = status;
-    if (status == FT_OK)
+    if (status == FT_OK && mpsse_blaster->clock_setting)
     {
-        // Keep this assignment explicit: mpsse_get_param must report the realizable value,
-        // rather than the requested value when the divider cannot represent it exactly.
-        mpsse_blaster->jtag_clock = actual_clock;
-        if (mpsse_blaster->clock_setting)
-        {
-            mpsse_blaster->clock_setting->divisor = clock_divisor;
-        }
+        mpsse_blaster->clock_setting->divisor = clock_divisor;
     }
     return status;
 }

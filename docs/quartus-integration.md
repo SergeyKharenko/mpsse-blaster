@@ -16,20 +16,15 @@ Quartus Programmer / jtagconfig
     -> FT232H / target JTAG TAP
 ```
 
-`jtagd` discovers hardware plugins in Quartus's platform library directory and
-calls the exported `get_supported_hardware` entry point. Index 0 returns the
-operation table when a supported FTDI device is present; other indexes return
-null. A plugin filename in the hardware-driver namespace and the expected entry
-point allow the server to load it without application-side linking.
+`jtagd` loads the plugin from Quartus's platform library directory through
+`get_supported_hardware`. Index 0 returns the operation table when a supported
+adapter is present; other indexes return null.
 
-The server discovers ports through `ScanPorts` and opens a plugin-owned opaque
-`JTAGClientData` handle. Clock callbacks queue MPSSE commands; `Flush` executes
-transfers and delivers TDO through the server's callbacks. The server closes the
-handle when it finishes using the cable. `mpsse_scan` uses this same interface
-inside its own process and accesses D2XX directly.
-
-Each client handle and the in-process divider cache require serialized access.
-The implementation does not expose a general-purpose thread-safe API.
+`ScanPorts` enumerates adapters; `OpenHardware` creates a plugin-owned handle.
+Clock callbacks queue MPSSE commands, and `Flush` transfers them and returns TDO
+through the server callbacks. `CloseHardware` releases the handle. `mpsse_scan`
+uses the same interface directly, without Quartus. Handles and the settings cache
+require serialized access.
 
 ## Deployment
 
@@ -74,27 +69,42 @@ The divider is 16 bits. The default is 2, giving 10 MHz.
 | 3 | 7.5 MHz |
 | 4 | 6 MHz |
 
-Requests above 30 MHz, below 458 Hz or equal to zero are rejected. Other requests
-choose the fastest realizable frequency that does not exceed the request. A
-20 MHz request selects 15 MHz; there is no intermediate setting between 15 and
-30 MHz. Parameter readback describes the selected divider, not an electrical
-frequency measurement or a guarantee of target compatibility.
+`JtagClock` accepts 458–30,000,000 Hz and rounds down to a realizable rate:
+20 MHz selects 15 MHz; 12 MHz selects 10 MHz. Readback reports the divider's rate,
+not a physical frequency measurement. See the [README](../README.md#quartus-integration)
+for commands.
 
-Use the cable number shown by `jtagconfig`:
+A rate change flushes queued clocks first. Settings survive close/reopen within
+the same server process, keyed by FTDI serial number or enumeration index when
+no serial is available. Serial-less replacements at the same index share that
+cache entry. Restarting the server restores 10 MHz with adjustment disabled;
+no settings file or EEPROM is written.
 
-```bash
-jtagconfig --setparam 1 JtagClock 30000000
-jtagconfig --getparam 1 JtagClock
-# Return to the default:
-jtagconfig --setparam 1 JtagClock 10000000
-```
+### Automatic adjustment
 
-Queued clocks finish at the old rate before the new divider is programmed. The
-selected divider survives close/reopen in the same JTAG server process. The cache
-uses the FTDI serial number, or the enumeration index when the serial is empty.
-A serial-less adapter cannot be reliably distinguished from a replacement at the
-same index. No settings file or EEPROM is written; restarting the server restores
-10 MHz. Quartus's GUI may not offer a frequency control for a third-party cable.
+`JtagClockAutoAdjust` accepts `0` (off, default) or `1` (on). Use Hardware Setup's
+**Auto-adjust frequency at chain scanning** checkbox or the
+[README commands](../README.md#quartus-integration).
+
+The ABI has no scan callback, so calibration runs after five consecutive
+TMS-high clocks, at TAP reset. Enabling the switch generates no clocks. All TAP
+resets can trigger calibration, including those outside chain scanning.
+
+The plugin builds a stable reference at 1 MHz, falling back to 100 kHz or 10 kHz.
+It then tries 30, 15, 10, 7.5, 6, 3, 1, 0.5 and 0.1 MHz from highest to lowest,
+skipping unsupported rates and those at or below the reference. Each candidate
+must match five consecutive reads; otherwise it falls back to the next rate.
+If none passes, it keeps the reference rate. If no reference is stable, it
+restores the previous divider and lets the normal scan diagnose the chain.
+
+Probes support up to 128 reset-selected IDCODE/BYPASS devices, reject stuck
+high/low TDO, and leave the TAP in reset. Probe TDO is never delivered to Quartus.
+USB errors stop the operation and remain latched until reopen. Calibration adds
+scan latency and checks chain communication, not programming stability or RTCK
+adaptive clocking. Commands follow [FTDI AN_108](https://ftdichip.com/Support/Documents/AppNotes/AN_108_Command_Processor_for_MPSSE_and_MCU_Host_Bus_Emulation_Modes.pdf).
+
+Disable adjustment before choosing a manual rate; otherwise the next reset can
+change it.
 
 ## Callback reference
 
@@ -111,13 +121,12 @@ checks protect these offsets. Scalar parameter values and block lengths are
 | `CloseHardware` | Release the client handle and its FTDI handle |
 | `ClockRaw` / `ClockMultiple` | Queue constant-TDI clocks or a TDI bitstream, with constant TMS |
 | `Flush` | Execute queued transfers and deliver TDO through `JTAGServerOperations` |
-| `SetParam` / `GetParam` | Set/read `JtagClock`; report `JtagClockAutoAdjust` disabled |
+| `SetParam` / `GetParam` | Set/read `JtagClock` and the `JtagClockAutoAdjust` switch |
 | `Delay` | Flush, then wait in microseconds without generating TCK; Windows rounds the wait upward to milliseconds |
 | `GetParamBlock` | Read `SerialNumber`; input length is capacity, output length is bytes copied, with no NUL terminator |
 
-Unknown parameter names and invalid clock requests return `0x2D`. Disabling
-`JtagClockAutoAdjust` succeeds; enabling it returns `0x7E` because there is no
-target feedback for automatic adjustment.
+Unknown parameter names, invalid clock requests and automatic-adjustment values
+other than `0` or `1` return `0x2D`.
 
 The recirculation callbacks remain null so the server can use its software
 fallback. `DirectControl` and `EnableActiveSerial` remain null because the
